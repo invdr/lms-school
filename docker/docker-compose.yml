@@ -21,6 +21,7 @@ services:
     command: bash /workspace/init.sh
     environment:
       - SHELL=/bin/bash
+      - LMS_APP_REPOSITORY=https://github.com/invdr/lms-school.git
     working_dir: /home/frappe
     volumes:
       - .:/workspace

@@ -136,10 +136,10 @@ You need Docker, docker-compose and git setup on your machine. Refer [Docker doc
     cd frappe-learning
 
     # Download the docker-compose file
-    wget -O docker-compose.yml https://raw.githubusercontent.com/frappe/lms/develop/docker/docker-compose.yml
+    wget -O docker-compose.yml https://raw.githubusercontent.com/invdr/lms-school/develop/docker/docker-compose.yml
 
     # Download the setup script
-    wget -O init.sh https://raw.githubusercontent.com/frappe/lms/develop/docker/init.sh
+    wget -O init.sh https://raw.githubusercontent.com/invdr/lms-school/develop/docker/init.sh
 
 **Step 2**: Run the container and daemonize it
 
@@ -163,7 +163,7 @@ To setup the repository locally follow the steps mentioned below:
 	$ bench new-site learning.test
  	$ bench --site learning.test add-to-hosts
  	$ bench get-app https://github.com/frappe/payments
- 	$ bench get-app https://github.com/frappe/lms
+	$ bench get-app https://github.com/invdr/lms-school
  	$ bench --site learning.test install-app lms
  	
 	```

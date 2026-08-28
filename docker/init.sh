@@ -32,7 +32,9 @@ sed -i '/watch/d' ./Procfile
 sed -i 's|^web: bench serve.*|web: bench serve --host 0.0.0.0 --port 8000|' ./Procfile
 
 bench get-app payments
-bench get-app lms
+# Install the maintained school fork so fresh deployments include the
+# Russian LMS catalog and any school-specific improvements.
+bench get-app "${LMS_APP_REPOSITORY:-https://github.com/invdr/lms-school.git}"
 
 bench new-site lms.localhost \
 --force \
@@ -42,6 +44,10 @@ bench new-site lms.localhost \
 
 bench --site lms.localhost install-app payments
 bench --site lms.localhost install-app lms
+# Russian is the default language for this school deployment.  Keep the
+# language enabled as well, so users can still switch their own profile.
+bench --site lms.localhost execute frappe.db.set_single_value --args '["System Settings", "language", "ru"]'
+bench --site lms.localhost execute frappe.db.sql --args '["UPDATE tabLanguage SET enabled=1 WHERE language_code=%s", ["ru"]]'
 bench --site lms.localhost set-config developer_mode 1
 bench --site lms.localhost clear-cache
 bench use lms.localhost
