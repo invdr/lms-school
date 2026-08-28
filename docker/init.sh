@@ -1,9 +1,15 @@
-#!bin/bash
+#!/usr/bin/env bash
+
+set -e
 
 if [ -d "/home/frappe/frappe-bench/apps/frappe" ]; then
     echo "Bench already exists, skipping init"
     cd frappe-bench
+    # The development server must listen on the container interface so the
+    # published Docker port is reachable from the host.
+    sed -i 's|^web: bench serve.*|web: bench serve --host 0.0.0.0 --port 8000|' ./Procfile
     bench start
+    exit $?
 else
     echo "Creating new bench..."
 fi
@@ -23,6 +29,7 @@ bench set-redis-socketio-host redis://redis:6379
 # Remove redis, watch from Procfile
 sed -i '/redis/d' ./Procfile
 sed -i '/watch/d' ./Procfile
+sed -i 's|^web: bench serve.*|web: bench serve --host 0.0.0.0 --port 8000|' ./Procfile
 
 bench get-app payments
 bench get-app lms
