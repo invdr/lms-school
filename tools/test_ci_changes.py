@@ -10,6 +10,12 @@ SCRIPT = Path(__file__).with_name("ci-changes.py").resolve()
 
 class PackagingSelection(unittest.TestCase):
     def setUp(self):
+        # pre-push exports repository-local Git variables. Child repositories
+        # must not inherit the parent worktree/index during real-history tests.
+        local_variables = subprocess.check_output(
+            ["git", "rev-parse", "--local-env-vars"], text=True
+        ).splitlines()
+        self.env = {key: value for key, value in os.environ.items() if key not in local_variables}
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -21,7 +27,7 @@ class PackagingSelection(unittest.TestCase):
         self.git("checkout", "-b", "feature")
 
     def git(self, *args):
-        return subprocess.check_output(["git", *args], cwd=self.root, text=True, stderr=subprocess.DEVNULL)
+        return subprocess.check_output(["git", *args], cwd=self.root, env=self.env, text=True, stderr=subprocess.DEVNULL)
 
     def commit(self, path, content):
         target = self.root / path
@@ -33,7 +39,7 @@ class PackagingSelection(unittest.TestCase):
     def select(self, event=None, ref="feature"):
         event_file = self.root / "event.json"
         event_file.write_text(json.dumps(event or {}))
-        env = dict(os.environ, GITHUB_EVENT_PATH=str(event_file), GITHUB_REF_NAME=ref)
+        env = dict(self.env, GITHUB_EVENT_PATH=str(event_file), GITHUB_REF_NAME=ref)
         return subprocess.check_output(
             ["python3", str(SCRIPT), "--base", "develop"], cwd=self.root, env=env, text=True
         ).strip()
