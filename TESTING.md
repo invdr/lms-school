@@ -61,7 +61,7 @@ bash tools/check-local.sh
 
 При `LMS_LOCAL_CHECKS=1` только build-time импорт `sites/common_site_config.json` заменяется на `tools/local-site-config.json`. Обычная deploy-сборка использует настоящий конфиг сайта.
 
-Docker checks работают в проекте `albadr-tests`, используют игнорируемые `.local-tests/bench`, `.local-tests/cache` и отдельный том `albadr-tests_test-db` с таблицами, чувствительными к регистру. Сайт — `lms.test`, `allow_tests=true`, `mute_emails=true`. Перед прогоном текущие исходники копируются заново, удалённые тесты удаляются и из Bench-копии, framework pins и зависимости сверяются/обновляются даже на уже запущенном Bench, схема мигрируется. CI не собирает необязательные Frappe desk-ассеты (`LMS_TEST_ASSETS=0`); локально они доступны для браузера.
+Docker checks работают в проекте `albadr-tests`, используют игнорируемые `.local-tests/bench`, `.local-tests/cache` и отдельный том `albadr-tests_test-db` с таблицами, чувствительными к регистру. Сайт — `lms.test`, `allow_tests=true`, `mute_emails=true`. Перед прогоном текущие исходники копируются заново, удалённые тесты удаляются и из Bench-копии, framework pins и зависимости сверяются/обновляются даже на уже запущенном Bench, схема мигрируется. Обязательный Frappe email CSS bundle собирается и в CI: регистрационные fixtures рендерят письма при выключенной отправке. CI не собирает полный Desk (`LMS_TEST_ASSETS=0`); локально он доступен для браузера. После смены framework pin оба asset-маркера сбрасываются; подготовка ассетов выполняется и на тёплом Bench.
 
 Если порт занят: `ALBADR_TEST_PORT=18081 bash tools/check-local.sh`. Остановка сервисов:
 
@@ -76,7 +76,7 @@ LMS_BENCH_DIR=/absolute/path/to/frappe-bench LMS_TEST_SITE=lms.test \
   LMS_TEST_URL=http://127.0.0.1:8000 bash tools/check-local.sh
 ```
 
-Native сервер должен быть запущен на указанном loopback URL и обслуживать тот же тестовый Bench; smoke передаёт выбранное `*.test` имя в Host. `LMS_TEST_URL` обязателен, иначе fallback останавливается до тяжёлых проверок. Его `apps/lms` должен указывать на этот checkout; Payments/LMS и актуальные зависимости установлены, схема предварительно мигрирована, имя сайта — только `*.test`. Native Bench подготавливается владельцем; автоматическое закрепление framework и обновление dependency hash выполняется Docker-runner. Docker поддерживает только свой `lms.test`. Нельзя запускать проверки на школьном сайте или заменять БД моками Frappe.
+Native сервер должен быть запущен на указанном loopback URL и обслуживать тот же тестовый Bench; smoke передаёт выбранное `*.test` имя в Host. `LMS_TEST_URL` обязателен, иначе fallback останавливается до тяжёлых проверок. Его `apps/lms` должен указывать на этот checkout; Payments/LMS и актуальные зависимости установлены, Frappe email/Desk assets собраны, схема предварительно мигрирована, имя сайта — только `*.test`. Native Bench подготавливается владельцем; автоматическое закрепление framework и обновление dependency hash выполняется Docker-runner. Docker поддерживает только свой `lms.test`. Нельзя запускать проверки на школьном сайте или заменять БД моками Frappe.
 
 ## Три коротких E2E-сценария
 

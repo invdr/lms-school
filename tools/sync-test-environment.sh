@@ -10,7 +10,7 @@ pin_revision() {
         # Bench names clone remotes upstream; a cached clone can use origin.
         git -C "apps/$app" fetch "https://github.com/frappe/$app.git" "$revision"
         git -C "apps/$app" checkout --detach "$revision"
-        rm -f .backend-packages.sha256 .framework-assets-ready
+        rm -f .backend-packages.sha256 .framework-assets-ready .email-assets-ready
     fi
 }
 pin_revision frappe "$FRAPPE_REVISION"

@@ -37,9 +37,6 @@ bench --site lms.test set-config mute_emails true
 bench --site lms.test migrate
 bench use lms.test
 bench set-config -g serve_default_site true
-if [[ "${LMS_TEST_ASSETS:-1}" == 1 && ! -f .framework-assets-ready ]]; then
-    bench build --app frappe
-    touch .framework-assets-ready
-fi
+bash /workspace/tools/build-test-assets.sh
 touch .local-tests-ready
 exec bench serve --port 8000

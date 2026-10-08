@@ -33,6 +33,7 @@ else
         bash /workspace/tools/sync-test-environment.sh
         bench --site lms.test migrate
         bench --site lms.test set-config allow_tests true
+        bash /workspace/tools/build-test-assets.sh
         bash /workspace/tools/run-backend-tests.sh lms.test "$@"
     ' bash "$@"
 fi
