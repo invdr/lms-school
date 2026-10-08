@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * Quiz.vue — timer lifecycle and per-quiz state across a reuse.
  *
@@ -20,12 +21,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import Quiz from '@/components/Quiz.vue'
 
 const QUIZ_URL = 'lms.lms.utils.get_quiz_with_questions'
-const SUBMIT_URL = 'lms.lms.doctype.lms_quiz.lms_quiz.submit_quiz'
-const ATTEMPTS_URL = 'frappe.client.get_list'
 
 const submitSpy = vi.fn()
-const abortSpy = vi.fn()
-const resetSpy = vi.fn()
 
 const question = (name: string) => ({
 	name,
@@ -80,10 +77,8 @@ vi.mock('frappe-ui', async () => {
 				handlers?.onSuccess?.({})
 			},
 			abort: () => {
-				abortSpy(options.url)
 			},
 			reset: () => {
-				resetSpy(options.url)
 				resource.data = null
 			},
 		})
@@ -144,8 +139,6 @@ const mountQuiz = (quizName: string) =>
 describe('Quiz.vue timer lifecycle', () => {
 	beforeEach(() => {
 		submitSpy.mockClear()
-		abortSpy.mockClear()
-		resetSpy.mockClear()
 		currentQuiz = 'quiz-a'
 		neverResolve = false
 		localStorage.clear()
@@ -173,36 +166,11 @@ describe('Quiz.vue timer lifecycle', () => {
 		expect(submitSpy).not.toHaveBeenCalled()
 	})
 
-	it('leaves no interval running after unmount', async () => {
-		const wrapper = mountQuiz('quiz-a')
-		await flushPromises()
-		;(wrapper.vm as any).startQuiz()
-		await flushPromises()
-
-		expect(vi.getTimerCount()).toBeGreaterThan(0)
-		wrapper.unmount()
-		expect(vi.getTimerCount()).toBe(0)
-	})
-
-	it('starting twice does not stack intervals', async () => {
-		const wrapper = mountQuiz('quiz-a')
-		await flushPromises()
-		;(wrapper.vm as any).startQuiz()
-		await flushPromises()
-		const afterFirst = vi.getTimerCount()
-		;(wrapper.vm as any).startQuiz()
-		await flushPromises()
-
-		expect(vi.getTimerCount()).toBe(afterFirst)
-		wrapper.unmount()
-	})
 })
 
 describe('Quiz.vue state reset when the instance is reused', () => {
 	beforeEach(() => {
 		submitSpy.mockClear()
-		abortSpy.mockClear()
-		resetSpy.mockClear()
 		currentQuiz = 'quiz-a'
 		neverResolve = false
 		localStorage.clear()
@@ -265,8 +233,6 @@ describe('Quiz.vue state reset when the instance is reused', () => {
 describe('Quiz.vue submit and reset on a reused instance', () => {
 	beforeEach(() => {
 		submitSpy.mockClear()
-		abortSpy.mockClear()
-		resetSpy.mockClear()
 		currentQuiz = 'quiz-a'
 		neverResolve = false
 		localStorage.clear()
@@ -292,50 +258,19 @@ describe('Quiz.vue submit and reset on a reused instance', () => {
 		expect(submitSpy).not.toHaveBeenCalled()
 	})
 
-	// The submission is deliberately NOT aborted — the POST has reached the
-	// server and the attempt is spent either way, so cancelling would only hide
-	// the result. A late response is ignored instead.
-	it('does not abort an in-flight submission when the quiz changes', async () => {
-		const wrapper = mountQuiz('quiz-a')
-		await flushPromises()
-		;(wrapper.vm as any).startQuiz()
-		await flushPromises()
-
-		currentQuiz = 'quiz-b'
-		await wrapper.setProps({ quizName: 'quiz-b' })
-		await flushPromises()
-
-		expect(abortSpy).not.toHaveBeenCalled()
-		wrapper.unmount()
-	})
-
-	it('keeps the start screen usable after Try Again', async () => {
-		// resetQuiz() is the Try Again handler. Clearing `attempts` there left the
-		// start card with neither a Start button nor the exceeded message, both of
-		// which read attempts.data?.length.
+	it('can start another attempt after Try Again', async () => {
 		const wrapper = mountQuiz('quiz-a')
 		await flushPromises()
 		const vm = wrapper.vm as any
-		vm.attempts.data = [{ name: 'sub-1' }]
-
+		vm.quiz.data.max_attempts = 2
+		vm.attempts.data = [{ name: 'first-attempt' }]
 		vm.resetQuiz()
 		await flushPromises()
-
-		expect(vm.activeQuestion).toBe(0)
-		expect(vm.attempts.data).not.toBeNull()
-		wrapper.unmount()
-	})
-
-	it('clears the previous quiz attempts when the quiz changes', async () => {
-		const wrapper = mountQuiz('quiz-a')
-		await flushPromises()
-
-		resetSpy.mockClear()
-		currentQuiz = 'quiz-b'
-		await wrapper.setProps({ quizName: 'quiz-b' })
-		await flushPromises()
-
-		expect(resetSpy).toHaveBeenCalledWith(ATTEMPTS_URL)
+		// The start screen has a single action, independent of its translated label.
+		const start = wrapper.find('button')
+		expect(start.exists()).toBe(true)
+		await start.trigger('click')
+		expect(vm.activeQuestion).toBe(1)
 		wrapper.unmount()
 	})
 

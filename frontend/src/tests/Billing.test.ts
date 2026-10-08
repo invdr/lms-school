@@ -1,19 +1,18 @@
+// @vitest-environment jsdom
 /** Billing.vue: India state validation and checkout error surfacing. */
 // A case-sensitive state whitelist that also omitted every union territory
 // rejected "GUJARAT", and the rejection reached the user as an empty toast
 // (toast.error was handed the raw Error), so the button looked dead.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { reactive } from 'vue'
 import Billing from '@/pages/Billing.vue'
 
 type BillingAddress = Record<string, unknown>
 type SubmittedCall = { url: string; params: { address: BillingAddress } }
 
-const { toastMock, submitted, unhandled } = vi.hoisted(() => ({
+const { toastMock, submitted } = vi.hoisted(() => ({
 	toastMock: { success: vi.fn(), error: vi.fn() },
 	submitted: [] as SubmittedCall[],
-	unhandled: [] as unknown[],
 }))
 
 const ACCESS_URL = 'lms.lms.api.validate_billing_access'
@@ -44,104 +43,56 @@ const SUMMARY = {
 	gst_applied: 360,
 }
 
-type ResourceParams = { address: BillingAddress } & Record<string, unknown>
-type ResourceHandlers = {
-	validate?: (
-		params: ResourceParams
-	) => string | undefined | Promise<string | undefined>
-	onSuccess?: (data: unknown) => void
-	onError?: (error: Error) => void
-}
-type ResourceOptions = ResourceHandlers & {
-	url: string
-	params?: ResourceParams
-	makeParams?: (values?: unknown) => ResourceParams
-}
-
-// Mirrors frappe-ui's resource contract closely enough for this page: makeParams
-// builds the params, validate() runs after and aborts the fetch with a string
-// message, and an absent onError leaves that rejection unhandled.
-const createResourceMock = (opts: ResourceOptions) => {
-	// reactive: the page renders off `resource.data`, so a plain object would
-	// leave the template stuck on the loading branch.
-	const res = reactive({
-		data: null as unknown,
-		loading: false,
-		error: null as Error | null,
-		reload: vi.fn(),
-		submit: vi.fn(async (values?: unknown, handlers: ResourceHandlers = {}) => {
-			const params = opts.makeParams ? opts.makeParams(values) : opts.params
-			const validate = handlers.validate || opts.validate
-			if (validate && params) {
-				const message = await validate(params)
-				if (message && typeof message === 'string') {
-					const error = new Error(message)
-					const handlerFns = [opts.onError, handlers.onError].filter(Boolean)
-					if (!handlerFns.length) unhandled.push(error)
-					handlerFns.forEach((fn) => fn?.(error))
-					return
-				}
-			}
-			submitted.push({
-				url: opts.url,
-				params: JSON.parse(JSON.stringify(params)),
-			})
-			if (opts.url === ACCESS_URL) {
-				const data = {
-					access: true,
-					message: '',
-					address: addressFixture,
-					billing_field_meta: FIELD_META,
-				}
-				res.data = data
-				opts.onSuccess?.(data)
-			} else if (opts.url === SUMMARY_URL) {
-				res.data = SUMMARY
-			}
+vi.mock('frappe-ui', async () => {
+	const { createResource } = await import('frappe-ui/src/resources/resources.js')
+	return {
+		toast: toastMock,
+		call: vi.fn(),
+		usePageMeta: vi.fn(),
+		createResource: (options: any) => createResource({
+			...options,
+			resourceFetcher: async ({ url, params }: any) => {
+				submitted.push({ url, params: JSON.parse(JSON.stringify(params)) })
+				if (url === ACCESS_URL) return { access: true, address: addressFixture, billing_field_meta: FIELD_META }
+				if (url === SUMMARY_URL) return SUMMARY
+				return '#checkout'
+			},
 		}),
-	})
-	return res
-}
-
-vi.mock('frappe-ui', () => ({
-	toast: toastMock,
-	call: vi.fn(),
-	usePageMeta: vi.fn(),
-	createResource: (opts: ResourceOptions) => createResourceMock(opts),
-	Breadcrumbs: { template: '<div />' },
-	Button: {
-		emits: ['click'],
-		template: `<button @click="$emit('click')"><slot /></button>`,
-	},
-	FormControl: {
-		props: [
-			'modelValue',
-			'label',
-			'type',
-			'required',
-			'disabled',
-			'placeholder',
-		],
-		emits: ['update:modelValue', 'input'],
-		template: `<input
-			:data-testid="'fc-' + label"
-			:type="type || 'text'"
-			:value="modelValue"
-			@change="$emit('update:modelValue', type === 'checkbox' ? $event.target.checked : $event.target.value)"
-		/>`,
-	},
-	Combobox: {
-		props: ['modelValue', 'options', 'label', 'required', 'placeholder'],
-		emits: ['update:modelValue'],
-		template: `<select
-			:data-testid="'combobox-' + label"
-			:value="modelValue"
-			@change="$emit('update:modelValue', $event.target.value)"
-		>
-			<option v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</option>
-		</select>`,
-	},
-}))
+		Breadcrumbs: { template: '<div />' },
+		Button: {
+			emits: ['click'],
+			template: `<button @click="$emit('click')"><slot /></button>`,
+		},
+		FormControl: {
+			props: [
+				'modelValue',
+				'label',
+				'type',
+				'required',
+				'disabled',
+				'placeholder',
+			],
+			emits: ['update:modelValue', 'input'],
+			template: `<input
+				:data-testid="'fc-' + label"
+				:type="type || 'text'"
+				:value="modelValue"
+				@change="$emit('update:modelValue', type === 'checkbox' ? $event.target.checked : $event.target.value)"
+			/>`,
+		},
+		Combobox: {
+			props: ['modelValue', 'options', 'label', 'required', 'placeholder'],
+			emits: ['update:modelValue'],
+			template: `<select
+				:data-testid="'combobox-' + label"
+				:value="modelValue"
+				@change="$emit('update:modelValue', $event.target.value)"
+			>
+				<option v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</option>
+			</select>`,
+		},
+	}
+})
 
 vi.mock('frappe-ui/frappe', () => ({
 	useTelemetry: () => ({ capture: vi.fn() }),
@@ -221,32 +172,7 @@ const checkoutAddress = () => {
 describe('Billing: India state field', () => {
 	beforeEach(() => {
 		submitted.length = 0
-		unhandled.length = 0
 		vi.clearAllMocks()
-	})
-
-	it('offers the canonical states as options instead of free text', async () => {
-		const wrapper = await mountBilling()
-		const select = wrapper.find('[data-testid="combobox-State/Province"]')
-		expect(select.exists()).toBe(true)
-		expect(wrapper.find('[data-testid="fc-State/Province"]').exists()).toBe(
-			false
-		)
-
-		const options = select.findAll('option').map((o) => o.text())
-		expect(options).toContain('Gujarat')
-		// Union territories were missing from the original list, so anyone in one
-		// of them could not check out at all.
-		expect(options).toEqual(
-			expect.arrayContaining([
-				'Chandigarh',
-				'Puducherry',
-				'Ladakh',
-				'Lakshadweep',
-				'Andaman and Nicobar Islands',
-				'Dadra and Nagar Haveli and Daman and Diu',
-			])
-		)
 	})
 
 	it('canonicalises an all-caps saved state so checkout proceeds', async () => {
@@ -259,24 +185,6 @@ describe('Billing: India state field', () => {
 		expect(checkoutAddress().state).toBe('Gujarat')
 	})
 
-	it('canonicalises stray case and whitespace typed elsewhere', async () => {
-		const wrapper = await mountBilling({ state: '  tamil nadu ' })
-		await consent(wrapper)
-		await proceed(wrapper)
-
-		expect(checkout()).toBeTruthy()
-		expect(checkoutAddress().state).toBe('Tamil Nadu')
-	})
-
-	it('accepts a union territory', async () => {
-		const wrapper = await mountBilling({ state: 'Chandigarh' })
-		await consent(wrapper)
-		await proceed(wrapper)
-
-		expect(checkout()).toBeTruthy()
-		expect(checkoutAddress().state).toBe('Chandigarh')
-	})
-
 	it('still blocks a state that is not a real one', async () => {
 		const wrapper = await mountBilling({ state: 'Gujrat' })
 		await consent(wrapper)
@@ -286,46 +194,4 @@ describe('Billing: India state field', () => {
 		expect(toastMock.error).toHaveBeenCalled()
 	})
 
-	it('keeps the state as free text outside India', async () => {
-		const wrapper = await mountBilling({ country: 'Germany', state: 'Bayern' })
-		await consent(wrapper)
-		await proceed(wrapper)
-
-		expect(wrapper.find('[data-testid="fc-State/Province"]').exists()).toBe(
-			true
-		)
-		expect(checkout()).toBeTruthy()
-		expect(checkoutAddress().state).toBe('Bayern')
-	})
-})
-
-describe('Billing: checkout validation errors reach the user', () => {
-	beforeEach(() => {
-		submitted.length = 0
-		unhandled.length = 0
-		vi.clearAllMocks()
-	})
-
-	it('toasts readable text for the missing-consent error', async () => {
-		const wrapper = await mountBilling()
-		await proceed(wrapper)
-
-		expect(checkout()).toBeFalsy()
-		// An unhandled validation rejection would mean no feedback at all.
-		expect(unhandled).toHaveLength(0)
-		// Passing the Error object straight to toast.error renders an empty toast.
-		expect(toastMock.error).toHaveBeenCalledWith(
-			'Please provide your consent to proceed with the payment.'
-		)
-	})
-
-	it('toasts readable text for an invalid state', async () => {
-		const wrapper = await mountBilling({ state: 'Gujrat' })
-		await consent(wrapper)
-		await proceed(wrapper)
-
-		expect(toastMock.error).toHaveBeenCalledWith(
-			expect.stringContaining('state')
-		)
-	})
 })

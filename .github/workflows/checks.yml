@@ -1,0 +1,59 @@
+name: Checks
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [develop, master, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    # In-repository PRs already have a push run; only forks need a PR run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      LMS_TEST_ASSETS: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 security backport
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install check dependencies
+        run: |
+          corepack enable
+          python -m venv .venv-checks
+          .venv-checks/bin/pip install -r tools/requirements-checks.txt
+          corepack yarn install --frozen-lockfile
+      - name: Quick gate
+        run: bash tools/check-quick.sh
+      - name: Linux production build
+        run: LMS_LOCAL_CHECKS=1 corepack yarn build
+      - name: Select packaging check
+        id: changes
+        run: |
+          git fetch origin develop
+          python tools/ci-changes.py --base origin/develop >> "$GITHUB_OUTPUT"
+      - name: Docker packaging build
+        if: steps.changes.outputs.packaging == 'true'
+        run: bash tools/check-packaging.sh
+      - name: Backend integration and security contracts
+        run: bash tools/check-backend.sh
+      - name: Runtime smoke
+        run: python tools/check-runtime.py
+      - name: Test-service diagnostics
+        if: failure()
+        run: docker compose -p albadr-tests -f docker/tests.compose.yml logs --tail=150
+      - name: Stop test services
+        if: always()
+        run: docker compose -p albadr-tests -f docker/tests.compose.yml down --volumes

@@ -3012,7 +3012,12 @@ def sanitize_editorjs(raw):
 		data = json.loads(raw)
 	except (TypeError, ValueError):
 		return raw
-	return json.dumps(sanitize_json(data), separators=(",", ":"))
+	# Sanitize HTML inside each JSON string first. Escape angle brackets in the
+	# serialized envelope so Frappe's subsequent Text-field HTML sanitizer does
+	# not parse the whole JSON as HTML and corrupt quoted links or RTL spans.
+	return json.dumps(sanitize_json(data), separators=(",", ":")).replace("<", "\\u003c").replace(
+		">", "\\u003e"
+	)
 
 
 def get_editorjs_blocks(content):

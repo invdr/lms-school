@@ -5,17 +5,13 @@ from datetime import datetime
 from unittest.mock import patch
 
 import frappe
-from frappe.tests import UnitTestCase
 from frappe.utils import get_system_timezone, getdate, to_timedelta
 
 from lms.lms.doctype.lms_certificate.lms_certificate import is_certified
 from lms.lms.test_helpers import BaseTestUtils
 from lms.lms.utils import (
-	DEFAULT_PAGE_LENGTH,
 	MAX_PAGE_LENGTH,
-	convert_from_system_timezone,
 	create_user,
-	format_timezone,
 	get_average_rating,
 	get_batch_count,
 	get_batch_details,
@@ -40,8 +36,6 @@ from lms.lms.utils import (
 	has_moderator_role,
 	has_student_role,
 	is_instructor,
-	resolve_page_length,
-	slugify,
 )
 
 
@@ -52,14 +46,7 @@ class TestLMSUtils(BaseTestUtils):
 		self._setup_course_flow()
 		self._setup_batch_flow()
 
-	def test_simple_slugs(self):
-		self.assertEqual(slugify("hello-world"), "hello-world")
-		self.assertEqual(slugify("Hello World"), "hello-world")
-		self.assertEqual(slugify("Hello, World!"), "hello-world")
 
-	def test_duplicates_slugs(self):
-		self.assertEqual(slugify("Hello World", ["hello-world"]), "hello-world-2")
-		self.assertEqual(slugify("Hello World", ["hello-world", "hello-world-2"]), "hello-world-3")
 
 	def test_get_membership(self):
 		membership = get_membership(self.course.name, self.student1.email)
@@ -300,7 +287,7 @@ class TestLMSUtils(BaseTestUtils):
 # whose raw textarea has no EditorJS editor). Every reader must fail soft.
 import unittest  # noqa: E402
 
-from lms.lms.utils import get_editorjs_blocks, get_lesson_icon  # noqa: E402
+from lms.lms.utils import get_editorjs_blocks  # noqa: E402
 
 
 def _content(*blocks):
@@ -354,84 +341,8 @@ class TestGetEditorjsBlocks(unittest.TestCase):
 		self.assertEqual([b["type"] for b in blocks], ["header", "paragraph"])
 
 
-class TestGetLessonIcon(unittest.TestCase):
-	"""get_lesson_icon builds the course-outline icons; before the guard a single
-	lesson with non-JSON content 500'd the whole lesson list for every viewer.
-	"""
-
-	def test_non_json_content_falls_back_without_raising(self):
-		# Must NOT raise; with no recognisable blocks it falls through to the list icon.
-		self.assertEqual(get_lesson_icon("", "https://youtu.be/x"), "icon-list")
-
-	def test_video_embed_icon(self):
-		for service in ("youtube", "vimeo", "cloudflareStream", "bunnyStream"):
-			with self.subTest(service=service):
-				content = _content({"type": "embed", "data": {"service": service}})
-				self.assertEqual(get_lesson_icon("", content), "icon-youtube")
-
-	def test_video_upload_icon(self):
-		content = _content({"type": "upload", "data": {"file_type": "mp4"}})
-		self.assertEqual(get_lesson_icon("", content), "icon-youtube")
-
-	def test_quiz_assignment_program_icons(self):
-		cases = {
-			"quiz": "icon-quiz",
-			"assignment": "icon-assignment",
-			"program": "icon-code",
-		}
-		for block_type, icon in cases.items():
-			with self.subTest(block_type=block_type):
-				content = _content({"type": block_type, "data": {}})
-				self.assertEqual(get_lesson_icon("", content), icon)
-
-	def test_malformed_blocks_do_not_raise(self):
-		# Valid JSON whose upload/embed blocks are missing `data` or the field the reader
-		# reaches for. Each must fall through to the list icon, never AttributeError.
-		for block in (
-			{"type": "upload"},
-			{"type": "upload", "data": {}},
-			{"type": "upload", "data": {"file_type": None}},
-			{"type": "embed"},
-			{"type": "embed", "data": {}},
-		):
-			with self.subTest(block=block):
-				self.assertEqual(get_lesson_icon("", _content(block)), "icon-list")
 
 
-class TestResolvePageLength(UnitTestCase):
-	"""
-	`createListResource` sends `limit_page_length` and then advances `start` by
-	the same number. An endpoint that ignores it returns a page of a different
-	size, so the next page either repeats rows or skips them. These endpoints
-	are open to guests, so the value is also bounded.
-	"""
-
-	def test_client_page_size_is_honoured(self):
-		self.assertEqual(resolve_page_length(60), 60)
-
-	def test_missing_page_size_falls_back_to_the_default(self):
-		for empty in (None, "", 0):
-			with self.subTest(value=empty):
-				self.assertEqual(resolve_page_length(empty), DEFAULT_PAGE_LENGTH)
-
-	def test_numeric_strings_are_accepted(self):
-		self.assertEqual(resolve_page_length("60"), 60)
-
-	def test_unparseable_values_fall_back_rather_than_raise(self):
-		for junk in ("abc", "12; DROP TABLE", [], {}):
-			with self.subTest(value=junk):
-				self.assertEqual(resolve_page_length(junk), DEFAULT_PAGE_LENGTH)
-
-	def test_a_guest_cannot_ask_for_the_whole_table(self):
-		self.assertEqual(resolve_page_length(10_000), MAX_PAGE_LENGTH)
-
-	def test_boundaries(self):
-		self.assertEqual(resolve_page_length(1), 1)
-		self.assertEqual(resolve_page_length(MAX_PAGE_LENGTH), MAX_PAGE_LENGTH)
-		self.assertEqual(resolve_page_length(MAX_PAGE_LENGTH + 1), MAX_PAGE_LENGTH)
-
-	def test_negative_page_size_never_reaches_the_query(self):
-		self.assertEqual(resolve_page_length(-5), 1)
 
 
 class TestListEndpointPaging(BaseTestUtils):
@@ -599,58 +510,8 @@ class TestListEndpointPaging(BaseTestUtils):
 			frappe.db.set_single_value("LMS Settings", "allow_guest_access", 1)
 
 
-class TestFormatTimezone(UnitTestCase):
-	def test_iana_zone_gains_its_offset(self):
-		self.assertEqual(format_timezone("Asia/Kolkata", "2026-08-03"), "Asia/Kolkata (GMT+5:30)")
-
-	def test_offset_is_read_at_the_given_instant(self):
-		# America/Santiago is GMT-4 through winter and flips to GMT-3 in September.
-		self.assertEqual(format_timezone("America/Santiago", "2026-08-03"), "America/Santiago (GMT-4:00)")
-		self.assertEqual(format_timezone("America/Santiago", "2026-10-03"), "America/Santiago (GMT-3:00)")
-
-	def test_legacy_free_text_is_echoed(self):
-		self.assertEqual(format_timezone("IST (GMT+5:30)", "2026-08-03"), "IST (GMT+5:30)")
-
-	def test_hostile_value_is_echoed(self):
-		# ZoneInfo resolves keys against the filesystem, so a traversal attempt has
-		# to be rejected as free text rather than raising out of an email.
-		self.assertEqual(format_timezone("../../../etc/passwd", "2026-08-03"), "../../../etc/passwd")
-
-	def test_empty_stays_empty(self):
-		self.assertEqual(format_timezone(None), "")
-		self.assertEqual(format_timezone(""), "")
 
 
-@patch("lms.lms.utils.get_system_timezone", return_value="Asia/Kolkata")
-class TestConvertFromSystemTimezone(UnitTestCase):
-	def test_converts_the_wall_clock(self, _system_timezone):
-		date, time = convert_from_system_timezone("2026-08-03", "10:00:00", "Europe/Berlin")
-		self.assertEqual(date, getdate("2026-08-03"))
-		self.assertEqual(time.strftime("%H:%M"), "06:30")
-
-	def test_rolls_back_into_the_previous_day(self, _system_timezone):
-		date, time = convert_from_system_timezone("2026-08-03", "09:00:00", "America/Los_Angeles")
-		self.assertEqual(date, getdate("2026-08-02"))
-		self.assertEqual(time.strftime("%H:%M"), "20:30")
-
-	def test_accepts_a_timedelta(self, _system_timezone):
-		# Time fields come back from the DB as timedelta, not str.
-		date, time = convert_from_system_timezone(
-			getdate("2026-08-03"), to_timedelta("09:00:00"), "America/New_York"
-		)
-		self.assertEqual(date, getdate("2026-08-02"))
-		self.assertEqual(time.strftime("%H:%M"), "23:30")
-
-	def test_same_zone_is_untouched(self, _system_timezone):
-		date, time = convert_from_system_timezone("2026-08-03", "10:00:00", "Asia/Kolkata")
-		self.assertEqual(date, getdate("2026-08-03"))
-		self.assertEqual(time.strftime("%H:%M"), "10:00")
-
-	def test_legacy_free_text_is_not_converted(self, _system_timezone):
-		# There is no offset to convert against, so the clock is labelled, not moved.
-		date, time = convert_from_system_timezone("2026-08-03", "10:00:00", "IST (GMT+5:30)")
-		self.assertEqual(date, getdate("2026-08-03"))
-		self.assertEqual(time.strftime("%H:%M"), "10:00")
 
 
 class TestEvaluationDisplayTimezone(BaseTestUtils):

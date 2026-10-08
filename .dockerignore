@@ -1,0 +1,11 @@
+.git
+.github
+.local-tests
+.venv-checks
+node_modules
+frontend/node_modules
+backups
+**/__pycache__
+**/*.pyc
+lms/public/frontend
+lms/www/_lms.html

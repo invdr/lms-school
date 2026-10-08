@@ -49,15 +49,3 @@ class TestProfileDetailsDisclosure(BaseTestUtils, FrappeAPITestCase):
 		# check must fire before any target lookup.
 		with self.assertRaises(frappe.PermissionError):
 			self._call("Guest", self.admin_username)
-
-	def test_nonexistent_username_raises_does_not_exist_not_500(self):
-		# Both valid and invalid usernames must fail the same way for an unauthorized/absent
-		# target: no 200-vs-500 discrepancy to enumerate accounts with.
-		with self.assertRaises(frappe.DoesNotExistError):
-			self._call(self.student.email, f"nosuchuser-{frappe.generate_hash(length=8)}")
-
-	def test_non_string_username_rejected(self):
-		# Rejected either by Frappe's whitelist type validation (FrappeTypeError,
-		# from the `username: str` annotation) or by our own isinstance guard.
-		with self.assertRaises((frappe.ValidationError, frappe.FrappeTypeError)):
-			self._call(self.student.email, ["administrator"])

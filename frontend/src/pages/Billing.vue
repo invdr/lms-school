@@ -253,6 +253,7 @@ import Link from '@/components/Controls/Link.vue'
 import NotPermitted from '@/components/NotPermitted.vue'
 import { useTelemetry } from 'frappe-ui/frappe'
 import { getLmsRoute } from '@/utils/basePath'
+import { submitResource } from '@/utils/resource'
 import {
 	INDIAN_STATE_OPTIONS,
 	canonicalIndianState,
@@ -360,7 +361,8 @@ const paymentLink = createResource({
 })
 
 const generatePaymentLink = () => {
-	paymentLink.submit(
+	return submitResource(
+		paymentLink,
 		{},
 		{
 			validate() {

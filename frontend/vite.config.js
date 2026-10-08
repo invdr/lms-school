@@ -82,6 +82,14 @@ export default defineConfig(async ({ mode }) => {
 		resolve: {
 			alias: {
 				'@': path.resolve(__dirname, 'src'),
+				...(process.env.LMS_LOCAL_CHECKS === '1'
+					? {
+							'../../../../sites/common_site_config.json': path.resolve(
+								__dirname,
+								'../tools/local-site-config.json'
+							),
+						}
+					: {}),
 			},
 			// Force one copy of prosemirror; duplicate copies break tiptap's
 			// instanceof checks and crash the list buttons.

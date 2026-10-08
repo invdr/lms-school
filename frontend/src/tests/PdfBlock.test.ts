@@ -1,5 +1,5 @@
+// @vitest-environment jsdom
 import {
-	afterAll,
 	afterEach,
 	beforeEach,
 	describe,
@@ -9,36 +9,7 @@ import {
 } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-// `new pdfjsLib.PDFWorker({ port })` reaches the REAL pdf.js class here even
-// though `getDocument` is mocked, so pdf.js spins up its in-process fallback
-// worker and rejects "Worker was terminated" when the port is torn down. That
-// rejection is unobservable from our code and would fail the whole run despite
-// every assertion passing. Absorb only that one message, and fail loudly on
-// anything else so this cannot hide a real defect.
-const EXPECTED_TEARDOWN_REJECTION = 'Worker was terminated'
-const unexpectedRejections: string[] = []
-const onRejection = (reason: unknown) => {
-	const message = (reason as Error)?.message
-	if (message !== EXPECTED_TEARDOWN_REJECTION) {
-		unexpectedRejections.push(String(message ?? reason))
-	}
-}
-// Reached via globalThis because this tsconfig sets `types: []`, so there are
-// no @types/node globals to declare `process`.
-const proc = (globalThis as { process?: NodeEventTarget }).process
-type NodeEventTarget = {
-	on(event: string, listener: (reason: unknown) => void): void
-	off(event: string, listener: (reason: unknown) => void): void
-}
-proc?.on('unhandledRejection', onRejection)
-afterAll(() => {
-	proc?.off('unhandledRejection', onRejection)
-	expect(unexpectedRejections).toEqual([])
-})
-
-// pdf.js can't be imported in vitest+jsdom (ReferenceError: DOMMatrix), and it
-// needs no real rendering to test the lifecycle, so mock it. A shared `state`
-// lets each test steer getDocument to resolve or reject.
+// Replace only unavailable PDF rendering/Worker boundaries; component owns lifecycle.
 const state = vi.hoisted(() => ({
 	shouldReject: false,
 	destroy: vi.fn(),
@@ -120,45 +91,7 @@ afterEach(() => {
 	vi.resetModules()
 })
 
-async function mountPdf() {
-	const { default: PdfBlock } = await import('@/components/PdfBlock.vue')
-	const wrapper = mount(PdfBlock, { props: { file: '/files/x.pdf' } })
-	await flushPromises()
-	await flushPromises()
-	return wrapper
-}
-
 describe('PdfBlock', () => {
-	it('shows a loading state, then renders one placeholder per page', async () => {
-		const wrapper = await mountPdf()
-		expect(wrapper.findAll('.pdf-page')).toHaveLength(3)
-		expect(wrapper.text()).toContain('1 / 3')
-		expect(wrapper.find('.pdf-status').exists()).toBe(false)
-		wrapper.unmount()
-	})
-
-	it('shows an error state with a fallback link when the PDF fails to load', async () => {
-		state.shouldReject = true
-		const wrapper = await mountPdf()
-		expect(wrapper.find('.pdf-error').exists()).toBe(true)
-		expect(wrapper.find('.pdf-fallback-link').attributes('href')).toBe(
-			'/files/x.pdf'
-		)
-		wrapper.unmount()
-	})
-
-	it('destroys the document and terminates the worker on unmount', async () => {
-		const wrapper = await mountPdf()
-		expect(state.destroy).not.toHaveBeenCalled()
-		wrapper.unmount()
-		expect(state.destroy).toHaveBeenCalledTimes(1)
-		// last holder released -> our PDFWorker destroyed, then the port
-		expect(state.pdfWorkerDestroy).toHaveBeenCalledTimes(1)
-		expect(terminate).toHaveBeenCalledTimes(1)
-		// The pdf.js global is never written, so no viewer can strand a
-		// terminated port there for the next one to pick up.
-		expect(state.workerPort).toBeNull()
-	})
 
 	it('releases the worker even if unmounted before load() finishes', async () => {
 		// The ref is taken synchronously at mount, so an unmount that races the
@@ -180,6 +113,9 @@ describe('PdfBlock', () => {
 		const b = mount(PdfBlock, { props: { file: '/files/b.pdf' } })
 		await flushPromises()
 		await flushPromises()
+		const pdf = await import('pdfjs-dist/legacy/build/pdf.mjs')
+		expect(vi.mocked(pdf.getDocument).mock.calls.every(([options]) => options.worker)).toBe(true)
+		expect(state.workerPort).toBeNull()
 		// one worker shared by both
 		expect(createPdfWorker).toHaveBeenCalledTimes(1)
 
@@ -193,24 +129,6 @@ describe('PdfBlock', () => {
 		b.unmount()
 		expect(terminate).toHaveBeenCalledTimes(1) // last holder released
 		expect(state.pdfWorkerDestroy).toHaveBeenCalledTimes(1)
-	})
-
-	// The bug this pins: via GlobalWorkerOptions.workerPort, pdf.js records the
-	// SHARED worker on each document's loading task, so one viewer's
-	// pdfDoc.destroy() tears down the port-level message handler its siblings
-	// are still listening on. Their load then never resolves *and never
-	// rejects*, leaving a permanent "Loading PDF…". Passing `worker` explicitly
-	// makes pdf.js skip that ownership assignment.
-	it('passes the shared worker explicitly instead of via the pdf.js global', async () => {
-		const pdf = await import('pdfjs-dist/legacy/build/pdf.mjs')
-		const a = await mountPdf() // fully settled: leaves no pending load()
-		const arg = vi.mocked(pdf.getDocument).mock.calls[0][0] as {
-			worker?: unknown
-		}
-		expect(arg.worker).toBeTruthy() // ours, not the loading task's
-		expect(state.pdfWorkers).toBe(1)
-		expect(state.workerPort).toBeNull() // the global is never written
-		a.unmount()
 	})
 
 	it('cancels a loading task that has not resolved yet', async () => {

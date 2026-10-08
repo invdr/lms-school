@@ -1,19 +1,11 @@
-/**
- * Tests for the coupon editor (CouponDetails + CouponItems).
- *
- * The coupon is saved as ONE document: the applicable_items child table rides
- * along in the save payload, and Frappe diffs the rows server-side. These tests
- * pin that contract end to end: editing an existing row in place, adding a new
- * row, and dropping half-filled rows all show up correctly in the single save.
- */
+// @vitest-environment jsdom
+// Money-sensitive applicable-item changes must reach one document save.
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { reactive } from 'vue'
 import CouponDetails from '@/components/Settings/Coupons/CouponDetails.vue'
 
-// frappe-ui doesn't resolve under vitest. Mock the bits the editor uses and make
-// createDocumentResource controllable so we can seed the loaded doc and observe
-// the save.
+// Replace the document/network boundary; the real editor and child-row component run.
 const { setValueSubmit, insertSubmit, reloadMock, toastMock, docHolder } =
 	vi.hoisted(() => ({
 		setValueSubmit: vi.fn(),
@@ -157,6 +149,8 @@ describe('coupon editor: saving applicable items', () => {
 	it('persists an in-place edit of an existing row in the single save', async () => {
 		const w = await mountEditor()
 		await w.get('[data-testid="link-ABCE"]').setValue('ABCD')
+		await clickAddRow(w)
+		await w.get('[data-testid="link-empty"]').setValue('NEW-COURSE')
 		await clickSave(w)
 
 		expect(setValueSubmit).toHaveBeenCalledTimes(1)
@@ -169,27 +163,8 @@ describe('coupon editor: saving applicable items', () => {
 				parenttype: 'LMS Coupon',
 				parentfield: 'applicable_items',
 			},
+			expect.objectContaining({ reference_doctype: 'LMS Course', reference_name: 'NEW-COURSE' }),
 		])
 	})
 
-	it('includes a newly added row in the save', async () => {
-		const w = await mountEditor()
-		await clickAddRow(w)
-		await w.get('[data-testid="link-empty"]').setValue('NEW-COURSE')
-		await clickSave(w)
-
-		expect(
-			savedItems().map((r: { reference_name: string }) => r.reference_name)
-		).toEqual(['ABCE', 'NEW-COURSE'])
-	})
-
-	it('drops half-filled rows (no reference selected) from the save', async () => {
-		const w = await mountEditor()
-		await clickAddRow(w) // blank row, left unfilled
-		await clickSave(w)
-
-		expect(
-			savedItems().map((r: { reference_name: string }) => r.reference_name)
-		).toEqual(['ABCE'])
-	})
 })

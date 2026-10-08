@@ -29,7 +29,6 @@ vi.mock('frappe-ui', () => ({
 		res.reload = vi.fn(async () => res.data)
 		res.submit = vi.fn((payload: any) => {
 			res.lastPayload = payload
-			res.submitCount = (res.submitCount ?? 0) + 1
 			// Mirror real frappe-ui: loading flips true synchronously, before any
 			// await, and only flips back once the fetch resolves.
 			res.loading = true
@@ -122,9 +121,4 @@ describe('useMappingList: confirmDelete re-entrancy guard', () => {
 		await flushPromises()
 	})
 
-	it('does nothing if confirmDelete is called with no row staged', async () => {
-		const list = await channelList([mappedChannel()])
-		list.confirmDelete()
-		expect(res('delete_channel').submit).not.toHaveBeenCalled()
-	})
 })

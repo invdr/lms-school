@@ -186,3 +186,7 @@ To setup the repository locally follow the steps mentioned below:
 		</picture>
 	</a>
 </div>
+
+## Checks and releases
+
+Before each push, run `bash tools/check-quick.sh` and relevant backend integration tests. Install the push hook with `corepack yarn hooks:install`. GitHub Actions runs the full backend/security contracts on an isolated MariaDB, Linux production build and HTTP smoke; Docker packaging checks run for accumulated packaging/dependency changes. Require successful CI on the exact feature commit before merging and on the exact primary commit before deployment. For diagnostics or unavailable CI, use `bash tools/check-local.sh` plus the three built-in-browser scenarios. See [TESTING.md](TESTING.md) and [current handoff](docs/CURRENT_HANDOFF.md). Images are never published and deployment is manual.

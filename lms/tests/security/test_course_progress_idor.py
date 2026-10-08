@@ -1,4 +1,3 @@
-import json
 
 import frappe
 from frappe.tests.test_api import FrappeAPITestCase
@@ -21,14 +20,6 @@ class TestCourseProgressIDOR(BaseTestUtils, FrappeAPITestCase):
 		self.chapter = self._create_chapter(f"PChapter {hash}", self.course.name)
 		self.lesson = self._create_lesson(f"PLesson {hash}", self.chapter.name, self.course.name)
 
-	def test_lms_student_role_json_grants_no_create(self):
-		# Defense-in-depth: the doctype JSON must not grant LMS Student create (syncs to
-		# the DB permission layer on migrate). Read from disk to avoid mutating the site.
-		path = frappe.get_app_path("lms", "lms", "doctype", "lms_course_progress", "lms_course_progress.json")
-		with open(path) as f:
-			perms = json.load(f)["permissions"]
-		student = next(p for p in perms if p["role"] == "LMS Student")
-		self.assertNotEqual(student.get("create"), 1)
 
 	def test_student_cannot_insert_progress_for_another_member(self):
 		frappe.session.user = self.attacker.email

@@ -1,0 +1,45 @@
+services:
+  mariadb:
+    image: mariadb:11.8
+    environment:
+      MARIADB_ROOT_PASSWORD: local-tests
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --lower-case-table-names=0]
+    volumes:
+      - test-db:/var/lib/mysql
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:8.6-alpine
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  bench:
+    image: ${FRAPPE_BENCH_IMAGE:-frappe/bench@sha256:3f3ce9e2e3a324111b250cd8b95d3edbd10f47dc7710f89d0a813f936529404f}
+    user: root
+    command: bash -lc "chown frappe:frappe /home/frappe/.cache /home/frappe/frappe-bench && exec runuser -u frappe -- bash /workspace/tools/init-test-bench.sh"
+    environment:
+      LMS_TEST_ASSETS: ${LMS_TEST_ASSETS:-1}
+      UV_CACHE_DIR: /home/frappe/.cache/uv
+      UV_LINK_MODE: copy
+      YARN_CACHE_FOLDER: /home/frappe/.cache/yarn
+    volumes:
+      - ../.local-tests/bench:/home/frappe/frappe-bench
+      - ../.local-tests/cache:/home/frappe/.cache
+      - ..:/workspace:ro
+    ports:
+      - "127.0.0.1:${ALBADR_TEST_PORT:-18080}:8000"
+    depends_on:
+      mariadb: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, test, -f, /home/frappe/frappe-bench/.local-tests-ready]
+      interval: 5s
+      timeout: 3s
+      retries: 360
+volumes:
+  test-db:

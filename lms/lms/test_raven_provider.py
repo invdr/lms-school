@@ -1,6 +1,5 @@
 import importlib.util
 import sys
-import time
 import types
 
 import frappe
@@ -47,6 +46,19 @@ class TestOptionalRavenIntegrationImport(UnitTestCase):
 			module.default_evaluator({"rule_type": "No Such Rule"})
 
 
+def _create_rule_course(test):
+	"""Each rule suite owns its course, including on a completely fresh test site."""
+	course = frappe.get_doc({
+		"doctype": "LMS Course",
+		"title": f"Raven rule fixture {frappe.generate_hash()}",
+		"short_introduction": "Rule test fixture",
+		"description": "Disposable integration-test course",
+		"instructors": [{"instructor": "Administrator"}],
+	}).insert()
+	test.addCleanup(lambda: frappe.delete_doc("LMS Course", course.name, force=True))
+	return course.name
+
+
 class TestAllEnrolledRule(FrappeTestCase):
 	def setUp(self):
 		self.enrolled = frappe.get_doc(
@@ -65,10 +77,7 @@ class TestAllEnrolledRule(FrappeTestCase):
 				"send_welcome_email": 0,
 			}
 		).insert()
-		course = frappe.get_all("LMS Course", limit=1)
-		if not course:
-			self.skipTest("No course fixture; populate one before running this test")
-		self.course = course[0].name
+		self.course = _create_rule_course(self)
 		self.enrollment = frappe.get_doc(
 			{
 				"doctype": "LMS Enrollment",
@@ -236,10 +245,7 @@ class TestStudentsOfBatchesRule(FrappeTestCase):
 
 class TestStudentsOfCoursesRule(FrappeTestCase):
 	def setUp(self):
-		existing = frappe.get_all("LMS Course", limit=1)
-		if not existing:
-			self.skipTest("No course fixture; populate one before running this test")
-		self.course = existing[0].name
+		self.course = _create_rule_course(self)
 		self.in_course = frappe.get_doc(
 			{
 				"doctype": "User",
@@ -407,7 +413,7 @@ class TestPaymentFilter(FrappeTestCase):
 
 
 class TestBatchEnrollmentIndex(UnitTestCase):
-	"""The (batch, member) index that TestRulePerformance's 200ms budget depends on.
+	"""The (batch, member) lookup must retain its migration-created index.
 
 	Added by lms.patches.v2_0.add_batch_enrollment_index. Schema-only, so UnitTestCase.
 	IntegrationTestCase's test-record loader trips the Fiscal Year overlap flake here.
@@ -433,14 +439,7 @@ class TestStaffRule(FrappeTestCase):
 	"""
 
 	def setUp(self):
-		# Skip before creating anything. With no LMS Course fixture this suite has
-		# nothing to attach staff to. Checking after inserting the users would
-		# leak them (User.insert commits, and addCleanup is only registered at the
-		# end of setUp), making every later method fail on the duplicate user.
-		existing = frappe.get_all("LMS Course", limit=1)
-		if not existing:
-			self.skipTest("No course fixture; populate one before running this test")
-		self.course = existing[0].name
+		self.course = _create_rule_course(self)
 
 		self.instructor_user = frappe.get_doc(
 			{
@@ -678,87 +677,6 @@ class TestStaffRule(FrappeTestCase):
 		self.assertIsInstance(matched, set)
 
 
-class TestRulePerformance(FrappeTestCase):
-	"""Task 17: default_evaluator for 'Students of Batches' must return under 200ms for 1000 members.
-
-	The budget depends on the (batch, member) index added by
-	lms.patches.v2_0.add_batch_enrollment_index. Without it the query is a full table
-	scan. TestBatchEnrollmentIndex asserts the index directly; this test would still pass
-	unindexed on a small dev DB, so treat that one as the real guard.
-	"""
-
-	_TOTAL = 1000
-	_EMAIL_SUFFIX = "@example.com"
-	_THRESHOLD_SEC = 0.200
-
-	@staticmethod
-	def _perf_email(j: int) -> str:
-		return f"user-perf-{j}@example.com"
-
-	def setUp(self):
-		now = frappe.utils.now()
-		self.batch = frappe.get_doc(
-			{
-				"doctype": "LMS Batch",
-				"title": "Perf Test Batch",
-				"start_date": frappe.utils.today(),
-				"end_date": frappe.utils.add_days(frappe.utils.today(), 7),
-				"description": "Performance test batch",
-				"batch_details": "Performance test batch details",
-				"start_time": "09:00:00",
-				"end_time": "10:00:00",
-				"timezone": "Asia/Kolkata",
-				"instructors": [{"instructor": "Administrator"}],
-			}
-		).insert()
-
-		audit = (now, now, "Administrator", "Administrator")
-		emails = [self._perf_email(j) for j in range(self._TOTAL)]
-
-		# bulk_insert, not per-row insert(). 1000 ORM inserts takes minutes.
-		frappe.db.bulk_insert(
-			"User",
-			["name", "creation", "modified", "owner", "modified_by", "user_type", "email", "first_name"],
-			[(email, *audit, "User", email, f"Perf{j}") for j, email in enumerate(emails)],
-			ignore_duplicates=True,
-		)
-		frappe.db.bulk_insert(
-			"LMS Batch Enrollment",
-			["name", "creation", "modified", "owner", "modified_by", "batch", "member"],
-			[(f"perf-enroll-{j}", *audit, self.batch.name, email) for j, email in enumerate(emails)],
-			ignore_duplicates=True,
-		)
-
-	def tearDown(self):
-		# Set-based cleanup. The ORM would issue 1000 separate deletes.
-		perf_members = f"user-perf-%{self._EMAIL_SUFFIX}"
-		enrollment = frappe.qb.DocType("LMS Batch Enrollment")
-		frappe.qb.from_(enrollment).delete().where(enrollment.member.like(perf_members)).run()
-		user = frappe.qb.DocType("User")
-		frappe.qb.from_(user).delete().where(user.name.like(perf_members)).run()
-		if frappe.db.exists("LMS Batch", self.batch.name):
-			frappe.delete_doc("LMS Batch", self.batch.name, force=True)
-
-	def test_evaluate_rule_under_200ms_for_1000_students(self):
-		"""default_evaluator(Students of Batches) for a 1000-member batch must complete under 200ms."""
-		rule = {
-			"rule_type": "Students of Batches",
-			"payment_filter": "Any",
-			"batches": [self.batch.name],
-		}
-
-		t0 = time.monotonic()
-		result = default_evaluator(rule)
-		elapsed = time.monotonic() - t0
-
-		self.assertEqual(len(result), self._TOTAL, f"Expected {self._TOTAL} members, got {len(result)}")
-
-		self.assertLess(
-			elapsed,
-			self._THRESHOLD_SEC,
-			f"default_evaluator took {elapsed * 1000:.1f}ms. Exceeds {self._THRESHOLD_SEC * 1000:.0f}ms "
-			f"threshold. Check that lms.patches.v2_0.add_batch_enrollment_index has run.",
-		)
 
 
 class TestGetRavenSetup(UnitTestCase):

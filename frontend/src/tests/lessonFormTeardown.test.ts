@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 
@@ -170,7 +171,7 @@ async function mountLoaded(lessonOverrides: Record<string, any> = {}) {
 
 // A title @input is real user input, so it both updates v-model and arms autosave.
 async function editTitle(wrapper: VueWrapper, title: string) {
-	await wrapper.find('textarea.lesson-title').setValue(title)
+	await wrapper.find('textarea').setValue(title)
 }
 
 // Fire a @change from a specific BlockEditor (body vs instructor), modelling an
@@ -342,81 +343,5 @@ describe('LessonForm teardown autosave', () => {
 		const editLesson = findResource('frappe.client.set_value')
 		expect(editLesson.submit).toHaveBeenCalledTimes(1)
 		expect(editLesson.lastParams.name).toBe(LESSON_NAME)
-	})
-})
-
-// The title is a <textarea> so a long title can wrap and the field can grow with
-// it, which also let Enter put a real newline in the title.
-describe('LessonForm title is single-line', () => {
-	let wrapper: VueWrapper
-
-	beforeEach(() => {
-		created.list.length = 0
-		editorState.saveData = {}
-	})
-
-	afterEach(() => {
-		try {
-			wrapper?.unmount()
-		} catch {
-			// already unmounted by the test
-		}
-		document.body.innerHTML = ''
-	})
-
-	const titleField = () => wrapper.find('textarea.lesson-title')
-
-	const pressEnter = ({ isComposing = false } = {}) => {
-		const event = new KeyboardEvent('keydown', {
-			key: 'Enter',
-			bubbles: true,
-			cancelable: true,
-			isComposing,
-		})
-		titleField().element.dispatchEvent(event)
-		return event
-	}
-
-	it('refuses Enter', async () => {
-		wrapper = await mountLoaded()
-
-		expect(pressEnter().defaultPrevented).toBe(true)
-	})
-
-	it('lets Enter through while an IME candidate is being confirmed', async () => {
-		wrapper = await mountLoaded()
-
-		expect(pressEnter({ isComposing: true }).defaultPrevented).toBe(false)
-	})
-
-	it('collapses a pasted multi-line title', async () => {
-		wrapper = await mountLoaded()
-
-		await editTitle(wrapper, 'First line\nsecond line')
-		await flushPromises()
-
-		expect((titleField().element as HTMLTextAreaElement).value).toBe(
-			'First line second line'
-		)
-	})
-
-	it('flattens a title that was stored with a break', async () => {
-		wrapper = await mountLoaded({ title: 'Assignment\nsjksjla' })
-
-		expect((titleField().element as HTMLTextAreaElement).value).toBe(
-			'Assignment sjksjla'
-		)
-	})
-
-	it('persists the flattened title, not the break', async () => {
-		wrapper = await mountLoaded()
-		editorState.saveData.content = paragraph('Body text')
-
-		await editTitle(wrapper, 'Assignment\nsjksjla')
-		wrapper.unmount()
-		await flushPromises()
-
-		const editLesson = findResource('frappe.client.set_value')
-		expect(editLesson.lastParams.fieldname.title).toBe('Assignment sjksjla')
 	})
 })

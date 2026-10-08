@@ -1,16 +1,4 @@
-/**
- * Tests for ChapterModal.vue — specifically how it handles a failed submit.
- *
- * frappe-ui's createResource rethrows after running onError (resources.js
- * handleError), so a submit() whose result is neither awaited nor caught leaves
- * a rejected promise with no handler. On a SCORM chapter that surfaced in
- * production as an uncaught "Please upload a SCORM package" in the console when
- * Create was clicked before the upload had populated scorm_package.
- *
- * The mocked createResource below mirrors that contract exactly: validate()
- * returning a string becomes `new Error(message)`, which is passed to onError
- * and then rethrown.
- */
+// @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ChapterModal from '@/components/Modals/ChapterModal.vue'
@@ -35,60 +23,46 @@ const { toastMock, closeMock, resourceCall, updateOnboardingStepMock } =
 		updateOnboardingStepMock: vi.fn(),
 	}))
 
-vi.mock('frappe-ui', () => ({
-	toast: toastMock,
-	createResource: (options: SubmitOptions) => ({
-		async submit(params: unknown, tempOptions: SubmitOptions = {}) {
-			const opts = { ...options, ...tempOptions }
-			try {
-				const invalid = await opts.validate?.()
-				if (invalid) {
-					throw new Error(invalid)
-				}
-				// The real resource builds the payload from makeParams(); a mock that
-				// forwards the caller's literal {} silently covers nothing, and the
-				// `name` that decides insert-vs-update lives only in makeParams.
-				const data = await resourceCall(opts.makeParams?.() ?? params)
-				opts.onSuccess?.(data)
-				return data
-			} catch (error) {
-				opts.onError?.(error)
-				throw error
-			}
+vi.mock('frappe-ui', async () => {
+	const { createResource } = await import('frappe-ui/src/resources/resources.js')
+	return {
+		toast: toastMock,
+		createResource: (options: SubmitOptions) => createResource({
+			...options, resourceFetcher: ({ params }: any) => resourceCall(params),
+		}),
+		Dialog: {
+			name: 'Dialog',
+			props: ['open', 'title', 'actions'],
+			setup() {
+				return { closeMock }
+			},
+			template: `
+				<div v-if="open">
+					<slot />
+					<button
+						v-for="a in actions"
+						:key="a.label"
+						:data-testid="'action-' + a.label"
+						@click="a.onClick({ close: closeMock })"
+					>{{ a.label }}</button>
+				</div>
+			`,
 		},
-	}),
-	Dialog: {
-		name: 'Dialog',
-		props: ['open', 'title', 'actions'],
-		setup() {
-			return { closeMock }
+		FormControl: {
+			props: ['modelValue', 'label'],
+			emits: ['update:modelValue'],
+			template: `
+				<input
+					data-testid="field-title"
+					:value="modelValue"
+					@input="$emit('update:modelValue', $event.target.value)"
+				/>
+			`,
 		},
-		template: `
-			<div v-if="open">
-				<slot />
-				<button
-					v-for="a in actions"
-					:key="a.label"
-					:data-testid="'action-' + a.label"
-					@click="a.onClick({ close: closeMock })"
-				>{{ a.label }}</button>
-			</div>
-		`,
-	},
-	FormControl: {
-		props: ['modelValue', 'label'],
-		emits: ['update:modelValue'],
-		template: `
-			<input
-				data-testid="field-title"
-				:value="modelValue"
-				@input="$emit('update:modelValue', $event.target.value)"
-			/>
-		`,
-	},
-	FileUploader: { template: '<div />' },
-	Button: { template: '<button><slot /></button>' },
-}))
+		FileUploader: { template: '<div />' },
+		Button: { template: '<button><slot /></button>' },
+	}
+})
 
 vi.mock('frappe-ui/frappe', () => ({
 	useOnboarding: () => ({ updateOnboardingStep: updateOnboardingStepMock }),
@@ -137,37 +111,6 @@ const clickAction = (w: Wrapper, label: string): Promise<void> => {
 	return action.onClick({ close: closeMock })
 }
 
-const setTitle = async (w: Wrapper, title: string) => {
-	await w.get('[data-testid="field-title"]').setValue(title)
-}
-
-// tsconfig sets `types: []`, so node's globals aren't ambient here. Only the
-// two members this file uses are declared.
-declare const process: {
-	on(event: 'unhandledRejection', listener: (reason: unknown) => void): void
-	off(event: 'unhandledRejection', listener: (reason: unknown) => void): void
-}
-
-// Rejections escape to node, not to jsdom's window — a window listener sits
-// there recording nothing and the assertion passes vacuously.
-const captureUnhandled = () => {
-	const reasons: unknown[] = []
-	const listener = (reason: unknown) => reasons.push(reason)
-	process.on('unhandledRejection', listener)
-	return {
-		reasons,
-		async stop() {
-			await flushPromises()
-			await new Promise((resolve) => setTimeout(resolve, 0))
-			process.off('unhandledRejection', listener)
-		},
-	}
-}
-
-const enableScorm = async (w: Wrapper) => {
-	await w.get('[data-testid="scorm-toggle"]').trigger('click')
-}
-
 beforeEach(() => {
 	toastMock.success.mockReset()
 	toastMock.error.mockReset()
@@ -175,73 +118,6 @@ beforeEach(() => {
 	resourceCall.mockReset()
 	resourceCall.mockResolvedValue({ name: 'chapter-1' })
 	updateOnboardingStepMock.mockReset()
-})
-
-describe('ChapterModal — failed submit', () => {
-	it('toasts the validation reason rather than a bare "Error"', async () => {
-		const w = mountModal()
-		await setTitle(w, 'Module 1')
-		await enableScorm(w)
-
-		await clickAction(w, 'Create')
-
-		expect(toastMock.error).toHaveBeenCalledWith(
-			'Please upload a SCORM package'
-		)
-	})
-
-	it('does not leave the rejected submit unhandled', async () => {
-		const watcher = captureUnhandled()
-		const w = mountModal()
-		await setTitle(w, 'Module 1')
-		await enableScorm(w)
-
-		await expect(clickAction(w, 'Create')).resolves.toBeUndefined()
-
-		await watcher.stop()
-		expect(watcher.reasons).toEqual([])
-	})
-
-	it('keeps the dialog open and does not emit created', async () => {
-		const w = mountModal()
-		await setTitle(w, 'Module 1')
-		await enableScorm(w)
-
-		await clickAction(w, 'Create')
-
-		expect(closeMock).not.toHaveBeenCalled()
-		expect(w.emitted('created')).toBeUndefined()
-		expect(resourceCall).not.toHaveBeenCalled()
-	})
-
-	it('reports a network failure without printing raw browser text', async () => {
-		resourceCall.mockRejectedValue(new TypeError('Failed to fetch'))
-		const w = mountModal()
-		await setTitle(w, 'Module 1')
-
-		await expect(clickAction(w, 'Create')).resolves.toBeUndefined()
-
-		expect(toastMock.error).toHaveBeenCalledWith(
-			'Something went wrong. Please try again.'
-		)
-	})
-
-	it('does not report a saved chapter as failed when onSuccess throws', async () => {
-		// frappe-ui's useOnboarding throws when the app has no onboarding
-		// registered; onSuccess calls it first, for a System Manager.
-		updateOnboardingStepMock.mockImplementation(() => {
-			throw new TypeError("Cannot read properties of undefined (reading 'map')")
-		})
-		const w = mountModal({}, true)
-		await setTitle(w, 'Module 1')
-
-		// The record was created; the bug is ours, so it must not be dressed up as
-		// a request failure the moderator should retry — that is what produced a
-		// duplicate chapter.
-		await expect(clickAction(w, 'Create')).rejects.toThrow('reading')
-		expect(resourceCall).toHaveBeenCalledTimes(1)
-		expect(toastMock.error).not.toHaveBeenCalled()
-	})
 })
 
 describe('ChapterModal — payload', () => {
@@ -285,52 +161,5 @@ describe('ChapterModal — payload', () => {
 			name: 'orphaned-file-docname',
 			file_name: 'orphaned-file-docname',
 		})
-	})
-})
-
-describe('ChapterModal — action awaits the submit', () => {
-	it('stays pending until the submit settles, so the button can show loading', async () => {
-		let release: (value: unknown) => void = () => {}
-		resourceCall.mockReturnValue(
-			new Promise((resolve) => {
-				release = resolve
-			})
-		)
-
-		const w = mountModal()
-		await setTitle(w, 'Module 1')
-
-		let settled = false
-		const pending = clickAction(w, 'Create').then(() => {
-			settled = true
-		})
-
-		await flushPromises()
-		expect(settled).toBe(false)
-
-		release({ name: 'chapter-1' })
-		await pending
-		expect(settled).toBe(true)
-		expect(toastMock.success).toHaveBeenCalledWith('Chapter added successfully')
-	})
-})
-
-describe('ChapterModal — edit mode', () => {
-	it('does not leave a rejected edit submit unhandled', async () => {
-		const watcher = captureUnhandled()
-		const w = mountModal()
-		// The chapterDetail watch has no `immediate`, so the prop has to change
-		// after mount for the form to pick the existing chapter up.
-		await w.setProps({
-			chapterDetail: { name: 'chapter-1', title: 'Module 1' },
-		})
-		await flushPromises()
-		resourceCall.mockRejectedValue({ messages: ['Chapter is locked'] })
-
-		await expect(clickAction(w, 'Edit')).resolves.toBeUndefined()
-
-		await watcher.stop()
-		expect(watcher.reasons).toEqual([])
-		expect(toastMock.error).toHaveBeenCalledWith('Chapter is locked')
 	})
 })

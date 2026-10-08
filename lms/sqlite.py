@@ -124,9 +124,9 @@ class LearningSearch(SQLiteSearch):
 		"Course Instructor": INSTRUCTOR_FIELDS,
 	}
 
-	def build_index(self):
+	def build_index(self, *args, **kwargs):
 		try:
-			super().build_index()
+			super().build_index(*args, **kwargs)
 		except Exception as e:
 			frappe.throw(e)
 
