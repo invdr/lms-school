@@ -7,7 +7,8 @@ source /workspace/tools/framework-revisions.env
 pin_revision() {
     local app="$1" revision="$2"
     if [[ "$(git -C "apps/$app" rev-parse HEAD)" != "$revision" ]]; then
-        git -C "apps/$app" fetch origin "$revision"
+        # Bench names clone remotes upstream; a cached clone can use origin.
+        git -C "apps/$app" fetch "https://github.com/frappe/$app.git" "$revision"
         git -C "apps/$app" checkout --detach "$revision"
         rm -f .backend-packages.sha256 .framework-assets-ready
     fi
