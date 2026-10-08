@@ -5,7 +5,7 @@
 
 **Easy to use, open source, Learning Management System**
 
-![Tests](https://img.shields.io/endpoint?url=https://dashboard.cypress.io/badge/simple/vandxn/main&style=flat&logo=cypress)
+[![Checks](https://github.com/invdr/lms-school/actions/workflows/checks.yml/badge.svg?branch=develop)](https://github.com/invdr/lms-school/actions/workflows/checks.yml)
 
 </div>
 
